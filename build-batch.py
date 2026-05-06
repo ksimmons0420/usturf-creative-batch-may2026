@@ -166,6 +166,27 @@ def add_bottom_scrim(canvas, height_frac=0.40, max_alpha=215):
     return canvas
 
 
+def add_band_scrim(canvas, y_start, y_end, max_alpha=170, fade=80):
+    """Horizontal dark band from y_start..y_end with feathered top/bottom edges.
+    Use to darken a localized region behind text without over-darkening the rest."""
+    W, H = canvas.size
+    grad = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grad)
+    fade_top = max(0, y_start - fade)
+    for i in range(y_start - fade_top):
+        a = int(max_alpha * (i / max(1, fade)))
+        gd.line([(0, fade_top + i), (W, fade_top + i)], fill=(0, 0, 0, a))
+    gd.rectangle([(0, y_start), (W, y_end)], fill=(0, 0, 0, max_alpha))
+    fade_bot_end = min(H, y_end + fade)
+    for i in range(fade_bot_end - y_end):
+        a = int(max_alpha * (1 - i / max(1, fade)))
+        gd.line([(0, y_end + i), (W, y_end + i)], fill=(0, 0, 0, a))
+    if canvas.mode != "RGBA":
+        canvas = canvas.convert("RGBA")
+    canvas.alpha_composite(grad)
+    return canvas
+
+
 def build_fullbleed(W, H, photo_path, headline, sub, cta_text, out,
                     eyebrow=None, headline_color=WHITE, accent_words=None,
                     accent_color=GOLD, cta_fill=USTURF_GREEN, cta_text_color=WHITE):
@@ -247,9 +268,27 @@ def build_v1_stat_shock_472(W, H, out):
     canvas = fit_cover(photo, W, H).convert("RGBA")
     is_vertical = H > W * 1.5
     top_shift = int(H * 0.08) if is_vertical else 0  # clear Meta Reels/Stories top safe zone
-    # On 9:16, content shifts down 8% — extend top scrim so tag region stays legible
-    canvas = add_top_scrim(canvas, 0.70 if is_vertical else 0.55, max_alpha=225 if is_vertical else 215)
+
+    # Precompute layout y-positions so we can place a localized scrim behind the
+    # stars + tag region BEFORE drawing text on top.
+    big_size_pre = int(W * 0.40)
+    big_y_pre = int(H * 0.13) + top_shift
+    sub_size_pre = int(W * 0.072)
+    sub_y_pre = (big_y_pre + big_size_pre) + int(H * 0.005)
+    star_y_pre = sub_y_pre + sub_size_pre + int(H * 0.025)
+    star_size_pre = int(W * 0.025)
+    tag_size_pre = max(24, int(W * 0.034))
+    tag_y_pre = star_y_pre + star_size_pre * 2 + int(H * 0.025)
+    family_end_y_pre = tag_y_pre + tag_size_pre + 8 + tag_size_pre
+
+    canvas = add_top_scrim(canvas, 0.85 if is_vertical else 0.55, max_alpha=240 if is_vertical else 215)
     canvas = add_bottom_scrim(canvas, 0.35, max_alpha=200)
+    if is_vertical:
+        # Localized darken band behind the 5-star row + tag lines (sun-lit turf area
+        # otherwise drowns the white text). Feathered edges keep the photo natural.
+        band_top = star_y_pre - int(H * 0.025)
+        band_bot = family_end_y_pre + int(H * 0.020)
+        canvas = add_band_scrim(canvas, band_top, band_bot, max_alpha=170, fade=int(H * 0.04))
     draw = ImageDraw.Draw(canvas, "RGBA")
 
     # Eyebrow
