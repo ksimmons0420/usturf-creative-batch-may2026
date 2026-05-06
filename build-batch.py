@@ -22,6 +22,17 @@ POPPINS_SEMI = "/tmp/ad-fonts/Poppins-SemiBold.ttf"
 POPPINS_REG = "/tmp/ad-fonts/Poppins-Regular.ttf"
 POPPINS_MED = "/tmp/ad-fonts/Poppins-Medium.ttf"
 
+
+def draw_polygon_star(draw, cx, cy, r, fill):
+    """5-pointed star drawn as polygon. Use anywhere a ★ glyph is needed —
+    Poppins lacks U+2605 and Arial Bold's metrics lie about it too."""
+    pts = []
+    for j in range(10):
+        ang = math.radians(-90 + j * 36)
+        rr = r if j % 2 == 0 else r * 0.4
+        pts.append((cx + rr * math.cos(ang), cy + rr * math.sin(ang)))
+    draw.polygon(pts, fill=fill)
+
 REPO_ROOT = Path(__file__).parent
 PHOTO_ROOT = Path("/Users/kylesimmons/.claude/skills/product-visual-generator/brands/usturf/competitor-assets")
 OUT = REPO_ROOT / "renders" / "ad-batch" / "may2026"
@@ -234,7 +245,10 @@ def build_fullbleed(W, H, photo_path, headline, sub, cta_text, out,
 def build_v1_stat_shock_472(W, H, out):
     photo = Image.open(PHOTO_ROOT / "lush-vegas-backyard.png").convert("RGBA")
     canvas = fit_cover(photo, W, H).convert("RGBA")
-    canvas = add_top_scrim(canvas, 0.55, max_alpha=215)
+    is_vertical = H > W * 1.5
+    top_shift = int(H * 0.08) if is_vertical else 0  # clear Meta Reels/Stories top safe zone
+    # On 9:16, content shifts down 8% — extend top scrim so tag region stays legible
+    canvas = add_top_scrim(canvas, 0.70 if is_vertical else 0.55, max_alpha=225 if is_vertical else 215)
     canvas = add_bottom_scrim(canvas, 0.35, max_alpha=200)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
@@ -242,12 +256,12 @@ def build_v1_stat_shock_472(W, H, out):
     eb_size = max(24, int(W * 0.030))
     eb_font = load_font(POPPINS_BOLD, eb_size)
     draw_centered(draw, "VEGAS HOMEOWNERS, MEET YOUR NEW YARD",
-                  eb_font, int(H * 0.05), W, (*GOLD, 240))
+                  eb_font, int(H * 0.05) + top_shift, W, (*GOLD, 240))
 
     # Big "472"
     big_size = int(W * 0.40)
     big_font = load_font(POPPINS_BLACK, big_size)
-    big_y = int(H * 0.13)
+    big_y = int(H * 0.13) + top_shift
     draw_centered(draw, "472", big_font, big_y, W, WHITE)
     big_bottom = big_y + big_size
 
@@ -274,26 +288,39 @@ def build_v1_stat_shock_472(W, H, out):
             pts.append((px, py))
         draw.polygon(pts, fill=GOLD)
 
-    # Tag below stars
+    # Tag below stars — "[★] 4.7 on Google." with polygon star (Poppins lacks U+2605 glyph)
     tag_size = max(24, int(W * 0.034))
     tag_font = load_font(POPPINS_SEMI, tag_size)
     tag_y = star_y + star_size * 2 + int(H * 0.025)
-    draw_centered(draw, "★ 4.7 on Google.", tag_font, tag_y, W,
-                  (255, 255, 255, 230))
+    tag_color = (255, 255, 255, 230)
+    rest_text = "4.7 on Google."
+    rest_w = int(tag_font.getlength(rest_text))
+    rest_bbox = tag_font.getbbox(rest_text)
+    inline_star_r = int(tag_size * 0.42)
+    star_gap = int(tag_size * 0.32)
+    block_w = inline_star_r * 2 + star_gap + rest_w
+    block_x = (W - block_w) // 2
+    # Vertically center the polygon star with the text x-height (cap area)
+    text_top_y = tag_y - rest_bbox[1]
+    text_baseline = text_top_y + tag_font.getmetrics()[0]
+    star_cy = text_top_y + (text_baseline - text_top_y) // 2 + int(tag_size * 0.05)
+    draw_polygon_star(draw, block_x + inline_star_r, star_cy, inline_star_r, tag_color)
+    draw.text((block_x + inline_star_r * 2 + star_gap, tag_y - rest_bbox[1]),
+              rest_text, font=tag_font, fill=tag_color)
     draw_centered(draw, "Family-owned Vegas turf since 2003.",
-                  tag_font, tag_y + tag_size + 8, W,
-                  (255, 255, 255, 230))
+                  tag_font, tag_y + tag_size + 8, W, tag_color)
 
-    # CTA
-    cta_h = int(H * 0.06) if H > W * 1.5 else int(H * 0.085)
-    cta_h = max(80, cta_h)
-    cta_w = min(int(W * 0.62), 720)
-    cta_size = max(28, int(cta_h * 0.36))
-    cta_font = load_font(POPPINS_BOLD, cta_size)
-    cta_x = (W - cta_w) // 2
-    cta_y = H - cta_h - int(H * 0.06)
-    draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
-                  USTURF_GREEN, WHITE, cta_font)
+    # CTA — only on square (1:1). Skip on 9:16 because Reels/Stories serve a native CTA sticker
+    # that overlaps and competes with creative-baked CTAs (Meta safe-zone guidance).
+    if not is_vertical:
+        cta_h = max(80, int(H * 0.085))
+        cta_w = min(int(W * 0.62), 720)
+        cta_size = max(28, int(cta_h * 0.36))
+        cta_font = load_font(POPPINS_BOLD, cta_size)
+        cta_x = (W - cta_w) // 2
+        cta_y = H - cta_h - int(H * 0.06)
+        draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
+                      USTURF_GREEN, WHITE, cta_font)
 
     canvas.convert("RGB").save(out, "PNG", optimize=True)
     print(f"  ✓ {out.name}")
@@ -311,15 +338,18 @@ def build_v2_rebate_math(W, H, out):
     canvas.alpha_composite(overlay)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
+    is_vertical = H > W * 1.5
+    top_shift = int(H * 0.08) if is_vertical else 0
+
     # Eyebrow
     eb_size = max(22, int(W * 0.028))
     eb_font = load_font(POPPINS_BOLD, eb_size)
     draw_centered(draw, "VEGAS WATER REBATES",
-                  eb_font, int(H * 0.06), W, USTURF_GREEN_DARK)
+                  eb_font, int(H * 0.06) + top_shift, W, USTURF_GREEN_DARK)
 
     # Main equation: $5 + $2 = $7/SQ.FT BACK
     # Layout: rows of [number] [+/=] [number] etc, with labels below
-    eq_y = int(H * 0.18)
+    eq_y = int(H * 0.18) + top_shift
 
     # Big "$5 + $2 = $7" centered
     main_size = int(W * 0.18)
@@ -375,15 +405,16 @@ def build_v2_rebate_math(W, H, out):
     draw_centered(draw, "We handle all the paperwork.",
                   reas_font, reas_y, W, (60, 60, 60))
 
-    # CTA
-    cta_h = max(80, int(H * 0.06)) if H > W * 1.5 else max(90, int(H * 0.10))
-    cta_w = min(int(W * 0.66), 760)
-    cta_size = max(28, int(cta_h * 0.36))
-    cta_font = load_font(POPPINS_BOLD, cta_size)
-    cta_x = (W - cta_w) // 2
-    cta_y = H - cta_h - int(H * 0.06)
-    draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "CLAIM YOUR REBATE",
-                  USTURF_GREEN, WHITE, cta_font)
+    # CTA — only on square. Skip on 9:16 (Meta serves native CTA sticker for Reels/Stories)
+    if not is_vertical:
+        cta_h = max(90, int(H * 0.10))
+        cta_w = min(int(W * 0.66), 760)
+        cta_size = max(28, int(cta_h * 0.36))
+        cta_font = load_font(POPPINS_BOLD, cta_size)
+        cta_x = (W - cta_w) // 2
+        cta_y = H - cta_h - int(H * 0.06)
+        draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "CLAIM YOUR REBATE",
+                      USTURF_GREEN, WHITE, cta_font)
 
     canvas.convert("RGB").save(out, "PNG", optimize=True)
     print(f"  ✓ {out.name}")
@@ -400,16 +431,19 @@ def build_v3_payment_anchor(W, H, out):
     canvas = add_bottom_scrim(canvas, 0.42, max_alpha=215)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
+    is_vertical = H > W * 1.5
+    top_shift = int(H * 0.08) if is_vertical else 0
+
     # Eyebrow
     eb_size = max(24, int(W * 0.030))
     eb_font = load_font(POPPINS_BOLD, eb_size)
     draw_centered(draw, "0% INTEREST · 18 MONTHS",
-                  eb_font, int(H * 0.05), W, (*GOLD, 240))
+                  eb_font, int(H * 0.05) + top_shift, W, (*GOLD, 240))
 
     # Top headline
     head_size = int(W * 0.072)
     head_font = load_font(POPPINS_BLACK, head_size)
-    head_y = int(H * 0.12)
+    head_y = int(H * 0.12) + top_shift
     draw_centered(draw, "VEGAS YARDS FROM",
                   head_font, head_y, W, WHITE)
 
@@ -429,15 +463,16 @@ def build_v3_payment_anchor(W, H, out):
                   detail_font, detail_y + detail_size + 12, W,
                   (255, 255, 255, 200))
 
-    # CTA
-    cta_h = max(80, int(H * 0.06)) if H > W * 1.5 else max(90, int(H * 0.085))
-    cta_w = min(int(W * 0.62), 720)
-    cta_size = max(28, int(cta_h * 0.36))
-    cta_font = load_font(POPPINS_BOLD, cta_size)
-    cta_x = (W - cta_w) // 2
-    cta_y = H - cta_h - int(H * 0.06)
-    draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
-                  USTURF_GREEN, WHITE, cta_font)
+    # CTA — only on square. Skip on 9:16 (Meta serves native CTA sticker for Reels/Stories)
+    if not is_vertical:
+        cta_h = max(90, int(H * 0.085))
+        cta_w = min(int(W * 0.62), 720)
+        cta_size = max(28, int(cta_h * 0.36))
+        cta_font = load_font(POPPINS_BOLD, cta_size)
+        cta_x = (W - cta_w) // 2
+        cta_y = H - cta_h - int(H * 0.06)
+        draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
+                      USTURF_GREEN, WHITE, cta_font)
 
     canvas.convert("RGB").save(out, "PNG", optimize=True)
     print(f"  ✓ {out.name}")
@@ -454,16 +489,19 @@ def build_v4_longevity(W, H, out):
     canvas = add_bottom_scrim(canvas, 0.40, max_alpha=210)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
+    is_vertical = H > W * 1.5
+    top_shift = int(H * 0.08) if is_vertical else 0
+
     # Top: EST 2003 stamp (centered)
     stamp_size = max(22, int(W * 0.028))
     stamp_font = load_font(POPPINS_BOLD, stamp_size)
     draw_centered(draw, "EST. 2003 · LAS VEGAS, NV",
-                  stamp_font, int(H * 0.05), W, (*GOLD, 240))
+                  stamp_font, int(H * 0.05) + top_shift, W, (*GOLD, 240))
 
     # Big "22 YEARS."
     big_size = int(W * 0.155)
     big_font = load_font(POPPINS_BLACK, big_size)
-    big_y = int(H * 0.13)
+    big_y = int(H * 0.13) + top_shift
     draw_centered(draw, "22 YEARS.", big_font, big_y, W, WHITE)
 
     # Mid: ONE FAMILY. ALL VEGAS.
@@ -484,15 +522,16 @@ def build_v4_longevity(W, H, out):
                   detail_font, detail_y + detail_size + 12, W,
                   (255, 255, 255, 230))
 
-    # CTA
-    cta_h = max(80, int(H * 0.06)) if H > W * 1.5 else max(90, int(H * 0.085))
-    cta_w = min(int(W * 0.62), 720)
-    cta_size = max(28, int(cta_h * 0.36))
-    cta_font = load_font(POPPINS_BOLD, cta_size)
-    cta_x = (W - cta_w) // 2
-    cta_y = H - cta_h - int(H * 0.06)
-    draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
-                  USTURF_GREEN, WHITE, cta_font)
+    # CTA — only on square. Skip on 9:16 (Meta serves native CTA sticker for Reels/Stories)
+    if not is_vertical:
+        cta_h = max(90, int(H * 0.085))
+        cta_w = min(int(W * 0.62), 720)
+        cta_size = max(28, int(cta_h * 0.36))
+        cta_font = load_font(POPPINS_BOLD, cta_size)
+        cta_x = (W - cta_w) // 2
+        cta_y = H - cta_h - int(H * 0.06)
+        draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
+                      USTURF_GREEN, WHITE, cta_font)
 
     canvas.convert("RGB").save(out, "PNG", optimize=True)
     print(f"  ✓ {out.name}")
@@ -506,18 +545,21 @@ def build_v5_licenses(W, H, out):
     canvas = Image.new("RGB", (W, H), CREAM)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
+    is_vertical = H > W * 1.5
+    top_shift = int(H * 0.08) if is_vertical else 0
+
     pad_x = int(W * 0.07)
 
     # Top eyebrow
     eb_size = max(22, int(W * 0.028))
     eb_font = load_font(POPPINS_BOLD, eb_size)
     draw_centered(draw, "FULLY LICENSED. FULLY VETTED.",
-                  eb_font, int(H * 0.05), W, USTURF_GREEN_DARK)
+                  eb_font, int(H * 0.05) + top_shift, W, USTURF_GREEN_DARK)
 
     # Headline
     head_size = int(W * 0.083)
     head_font = load_font(POPPINS_BLACK, head_size)
-    head_y = int(H * 0.10)
+    head_y = int(H * 0.10) + top_shift
     draw_centered(draw, "B2 · C3 · C4 · C10.",
                   head_font, head_y, W, BLACK)
 
@@ -604,15 +646,16 @@ def build_v5_licenses(W, H, out):
         draw.text((cx + (cell_w - num_text_w) // 2, num_y),
                   num, font=num_font, fill=BLACK)
 
-    # CTA
-    cta_h = max(80, int(H * 0.06)) if H > W * 1.5 else max(90, int(H * 0.085))
-    cta_w = min(int(W * 0.62), 720)
-    cta_size = max(28, int(cta_h * 0.36))
-    cta_font = load_font(POPPINS_BOLD, cta_size)
-    cta_x = (W - cta_w) // 2
-    cta_y = H - cta_h - int(H * 0.06)
-    draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
-                  USTURF_GREEN, WHITE, cta_font)
+    # CTA — only on square. Skip on 9:16 (Meta serves native CTA sticker for Reels/Stories)
+    if not is_vertical:
+        cta_h = max(90, int(H * 0.085))
+        cta_w = min(int(W * 0.62), 720)
+        cta_size = max(28, int(cta_h * 0.36))
+        cta_font = load_font(POPPINS_BOLD, cta_size)
+        cta_x = (W - cta_w) // 2
+        cta_y = H - cta_h - int(H * 0.06)
+        draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
+                      USTURF_GREEN, WHITE, cta_font)
 
     canvas.save(out, "PNG", optimize=True)
     print(f"  ✓ {out.name}")
@@ -626,18 +669,21 @@ def build_v6_warranty_compare(W, H, out):
     canvas = Image.new("RGB", (W, H), CREAM)
     draw = ImageDraw.Draw(canvas, "RGBA")
 
+    is_vertical = H > W * 1.5
+    top_shift = int(H * 0.08) if is_vertical else 0
+
     pad_x = int(W * 0.07)
 
     # Eyebrow
     eb_size = max(22, int(W * 0.028))
     eb_font = load_font(POPPINS_BOLD, eb_size)
     draw_centered(draw, "ARTIFICIAL TURF WARRANTY",
-                  eb_font, int(H * 0.05), W, USTURF_GREEN_DARK)
+                  eb_font, int(H * 0.05) + top_shift, W, USTURF_GREEN_DARK)
 
     # Headline
     head_size = int(W * 0.10)
     head_font = load_font(POPPINS_BLACK, head_size)
-    head_y = int(H * 0.10)
+    head_y = int(H * 0.10) + top_shift
     draw_centered(draw, "LIFETIME.", head_font, head_y, W, USTURF_GREEN_DARK)
     head_y2 = head_y + head_size + 8
     draw_centered(draw, "NOT 10 YEARS.", head_font, head_y2, W, BLACK)
@@ -713,15 +759,16 @@ def build_v6_warranty_compare(W, H, out):
     draw_centered(draw, "Lifetime warranty included on every US Turf install.",
                   reas_font, reas_y, W, (60, 60, 60))
 
-    # CTA
-    cta_h = max(80, int(H * 0.06)) if H > W * 1.5 else max(90, int(H * 0.085))
-    cta_w = min(int(W * 0.62), 720)
-    cta_size = max(28, int(cta_h * 0.36))
-    cta_font = load_font(POPPINS_BOLD, cta_size)
-    cta_x = (W - cta_w) // 2
-    cta_y = H - cta_h - int(H * 0.06)
-    draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
-                  USTURF_GREEN, WHITE, cta_font)
+    # CTA — only on square. Skip on 9:16 (Meta serves native CTA sticker for Reels/Stories)
+    if not is_vertical:
+        cta_h = max(90, int(H * 0.085))
+        cta_w = min(int(W * 0.62), 720)
+        cta_size = max(28, int(cta_h * 0.36))
+        cta_font = load_font(POPPINS_BOLD, cta_size)
+        cta_x = (W - cta_w) // 2
+        cta_y = H - cta_h - int(H * 0.06)
+        draw_cta_pill(canvas, cta_x, cta_y, cta_w, cta_h, "GET A FREE ESTIMATE",
+                      USTURF_GREEN, WHITE, cta_font)
 
     canvas.save(out, "PNG", optimize=True)
     print(f"  ✓ {out.name}")
